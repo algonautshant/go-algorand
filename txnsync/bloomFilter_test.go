@@ -227,6 +227,60 @@ func TestHint(t *testing.T) {
 	}
 }
 
+// TestHint tests that the hint is used only when it should be used
+func TestHintIssue(t *testing.T) {
+	genesisHash := crypto.Hash([]byte("gh"))
+	genesisID := "gID"
+
+	var s syncState
+	s.node = &justRandomFakeNode{}
+	var encodingParams requestParams
+
+	for encodingParams.Modulator = 1; encodingParams.Modulator < 3; encodingParams.Modulator++ {
+		txnGroups := getTxnGroups(genesisHash, genesisID)
+		bf := s.makeBloomFilter(encodingParams, txnGroups, nil)
+
+		defaultFilterType := xorBloomFilter32
+		switch bf.filter.(type) {
+		case *bloom.XorFilter:
+			//ok
+		default:
+			t.Errorf("expect bloom.XorFilter")
+		}
+		require.Equal(t, defaultFilterType, bf.filterType)
+
+		// Change the filter of bf to other than the default filter i.e. XorFilter8
+		bf.filter, bf.filterType = filterFactoryXor8(len(txnGroups), &s)
+
+		// Pass bf as a hint.
+		bf2 := s.makeBloomFilter(encodingParams, txnGroups, &bf)
+
+		// If the filter of bf2 is not defaultFilterType (i.e. is XorFilter8), then the hint was used.
+		// The hint must be used, and the filter should not be the default filter.
+		require.NotEqual(t, defaultFilterType, bf2.filterType)
+		switch bf2.filter.(type) {
+		case *bloom.XorFilter8:
+			//ok
+		default:
+			t.Errorf("expect bloom.Filter")
+		}
+
+		// Now change txnGroups, so that the hint will not be used
+		txnGroups = append(txnGroups[:1], txnGroups[0], txnGroups[2])
+		bf2 = s.makeBloomFilter(encodingParams, txnGroups, &bf)
+
+		// If the filter of bf2 is XorFilter (i.e. defaultFilterType), then the hint was not used
+		switch bf2.filter.(type) {
+		case *bloom.XorFilter:
+			//ok
+		default:
+			t.Errorf("expect bloom.XorFilter")
+		}
+		require.Equal(t, defaultFilterType, bf2.filterType)
+	}
+}
+
+
 // TestEncodingDecoding checks the encoding/decoding of the filters
 func TestEncodingDecoding(t *testing.T) {
 
